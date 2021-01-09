@@ -345,6 +345,33 @@ Resources:
       EIP: !Ref ElasticIP
 
   #
+  # VPC Endpoint
+  #
+  SecretsManagerVpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: "Security Group for SecretsManager"
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref FunctionSecurityGroup
+
+  SecretsManagerVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      VpcId: !Ref VPC
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref SecretsManagerVpcEndpointSecurityGroup
+
+  #
   # Lambda
   #
   FunctionSecurityGroup:
