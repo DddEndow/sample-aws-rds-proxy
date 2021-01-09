@@ -286,6 +286,9 @@ Resources:
         - AuthScheme: SECRETS
           SecretArn: !Ref RDSSecretAttachment
           IAMAuth: DISABLED
+        - AuthScheme: SECRETS
+          SecretArn: !Ref RDSLambdaUserPassword
+          IAMAuth: DISABLED
       VpcSecurityGroupIds:
         - !Ref RDSProxySecurityGroup
       VpcSubnetIds:
