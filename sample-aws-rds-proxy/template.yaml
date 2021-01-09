@@ -25,9 +25,62 @@ Parameters:
 
     ## public subnet 2: 10.100.192.0/18
 
+  RDSDBPort:
+    Default: 3306
+    Type: "Number"
+    MinValue: 1150
+    MaxValue: 65535
+    Description: "Enter TCP/IP port used to connect DB in RDS."
+  RDSRootUserName:
+    Type: String
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    ConstraintDescription: "must be between 1 to 16 alphanumeric characters."
+    Description: "The database admin account user name, between 1 to 16 alphanumeric characters."
+    MaxLength: 16
+    MinLength: 1
+    Default: "root"
+  RDSRootUserPwd:
+    NoEcho: true
+    Type: "String"
+    MinLength: 1
+    MaxLength: 41
+    AllowedPattern: "^[a-zA-Z0-9]*$"
+    Description: "Enter the database admin account password in RDS"
+  RDSLambdaUserName:
+    Type: String
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    ConstraintDescription: "must be between 1 to 16 alphanumeric characters."
+    Description: "The database admin account user name, between 1 to 16 alphanumeric characters."
+    MaxLength: 16
+    MinLength: 1
+    Default: "lambda"
+  RDSLambdaUserPwd:
+    NoEcho: true
+    Type: "String"
+    MinLength: 1
+    MaxLength: 41
+    AllowedPattern: "^[a-zA-Z0-9]*$"
+    Description: "Enter the database admin account password in RDS"
+
+  EC2KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: "must be the name of an existing EC2 KeyPair."
+    Description: "Enter the name of an existing EC2 KeyPair to enable SSH access to the instance"
+  EC2CidrIp:
+    Description: "IP address allowed to access EC2"
+    Type: "String"
+    Default: ""
+
 Globals:
   Function:
     Timeout: 3
+
+Mappings:
+  RegionMap:
+    eu-west-1:
+      AL2: ami-01720b5f421cf0179
+    eu-west-2:
+      AL2: ami-0a669382ea0feb73a
 
 Resources:
   #
@@ -108,8 +161,198 @@ Resources:
       SubnetId: !Ref PublicSubnet1
 
   #
+  # SecretsManager
+  #
+  RDSMasterPassword:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: sample-rds-root-user
+      SecretString:
+        !Sub |
+        {
+          "username":"${RDSRootUserName}",
+          "password":"${RDSRootUserPwd}"
+        }
+
+  RDSLambdaUserPassword:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: sample-rds-lambda-user
+      SecretString:
+        !Sub |
+        {
+          "username":"${RDSLambdaUserName}",
+          "password":"${RDSLambdaUserPwd}"
+        }
+
+  #
+  # RDS
+  #
+  RDSSecretAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref RDSMasterPassword
+      TargetId: !Ref RDSInstance
+      TargetType: AWS::RDS::DBInstance
+
+  # RDS Instance
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: mysql
+      EngineVersion: 5.7
+      DBInstanceClass: db.t2.small
+      AllocatedStorage: 20
+      StorageType: gp2
+      MasterUsername: !Ref RDSRootUserName
+      MasterUserPassword: !Ref RDSRootUserPwd
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: "sample-rds-subnet-group"
+      DBSubnetGroupDescription: "-"
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "SecurityGroup rds-grp"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: !Ref RDSDBPort
+          ToPort: !Ref RDSDBPort
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+        - IpProtocol: tcp
+          SourceSecurityGroupId: !Ref RDSProxySecurityGroup
+          FromPort: !Ref RDSDBPort
+          ToPort: !Ref RDSDBPort
+
+  #
+  # RDS Proxy
+  #
+  RDSProxySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: "Security Group for RDS Proxy"
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: !Ref RDSDBPort
+          ToPort: !Ref RDSDBPort
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+        - IpProtocol: "tcp"
+          FromPort: !Ref RDSDBPort
+          ToPort: !Ref RDSDBPort
+          SourceSecurityGroupId: !Ref FunctionSecurityGroup
+
+  RDSProxyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rds.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AllowGetSecretValue
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !Ref RDSSecretAttachment
+                  - !Ref RDSLambdaUserPassword
+
+  RDSProxy:
+    Type: AWS::RDS::DBProxy
+    Properties:
+      DBProxyName: sample-rds-proxy-for-mysql
+      EngineFamily: MYSQL
+      RoleArn: !GetAtt RDSProxyRole.Arn
+      Auth:
+        - AuthScheme: SECRETS
+          SecretArn: !Ref RDSSecretAttachment
+          IAMAuth: DISABLED
+      VpcSecurityGroupIds:
+        - !Ref RDSProxySecurityGroup
+      VpcSubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  RDSProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    DependsOn:
+      - RDSInstance
+    Properties:
+      DBProxyName: !Ref RDSProxy
+      DBInstanceIdentifiers:
+        - !Ref RDSInstance
+      TargetGroupName: default
+      ConnectionPoolConfigurationInfo:
+        ConnectionBorrowTimeout: 120
+        MaxConnectionsPercent: 90
+        MaxIdleConnectionsPercent: 10
+
+  #
+  # EC2（踏み台）
+  #
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AL2]
+      SubnetId: !Ref PublicSubnet1
+      InstanceType: t2.micro
+      KeyName: !Ref EC2KeyName
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      UserData: !Base64 |
+        #!/bin/bash
+        sudo yum install -y mysql
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: "Enable SSH access via port 22"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref EC2CidrIp
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  IPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref EC2Instance
+      EIP: !Ref ElasticIP
+
+  #
   # Lambda
   #
+  FunctionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Lambda Function Security Group"
+      VpcId: !Ref VPC
+
   HelloWorldFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
