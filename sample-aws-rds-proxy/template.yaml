@@ -5,12 +5,111 @@ Description: >
 
   Sample SAM Template for sample-aws-rds-proxy
 
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Parameters:
+  pVpcCIDR:
+    Description: "CIDR block for VPC (recommend /16)"
+    Type: "String"
+    Default: "10.100.0.0/16"
+  pPrivateSubnet1CIDR:
+    Description: "CIDR block for Private Subnet"
+    Type: "String"
+    Default: "10.100.0.0/18"
+  pPrivateSubnet2CIDR:
+    Description: "CIDR block for Private Subnet"
+    Type: "String"
+    Default: "10.100.128.0/18"
+  pPublicSubnet1CIDR:
+    Description: "CIDR block for Public Subnet"
+    Type: "String"
+    Default: "10.100.64.0/18"
+
+    ## public subnet 2: 10.100.192.0/18
+
 Globals:
   Function:
     Timeout: 3
 
 Resources:
+  #
+  # Network
+  #
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !Ref "pVpcCIDR"
+      EnableDnsSupport: "true"
+      EnableDnsHostnames: "true"
+
+  PrivateSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref "pPrivateSubnet1CIDR"
+      VpcId: !Ref VPC
+
+  PrivateSubnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Ref "pPrivateSubnet2CIDR"
+      VpcId: !Ref VPC
+
+  PublicSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref "pPublicSubnet1CIDR"
+      VpcId: !Ref VPC
+
+  PrivateRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+
+  IGW:
+    Type: "AWS::EC2::InternetGateway"
+
+  IgwAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    DependsOn:
+      - "IGW"
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+
+  PublicRouteToIGW:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      RouteTableId: !Ref PublicRouteTable
+      GatewayId: !Ref IGW
+
+  PrivateSubnet1RouteAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  PublicSubnet1RouteAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  #
+  # Lambda
+  #
   HelloWorldFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
