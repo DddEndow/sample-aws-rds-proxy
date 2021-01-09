@@ -397,7 +397,7 @@ Resources:
           - !Ref PrivateSubnet2
       Environment:
         Variables:
-          RDS_PROXY_ENDPOINT: "sample-rds-proxy-for-mysql.proxy-cke6a8cf1enr.eu-west-1.rds.amazonaws.com"
+          RDS_PROXY_ENDPOINT: !GetAtt RDSProxy.Endpoint
           RDS_SECRET_NAME: "sample-rds-lambda-user"
           DB_NAME: "sample_rds_proxy"
       Policies:
