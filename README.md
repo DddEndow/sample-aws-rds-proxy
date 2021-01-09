@@ -78,3 +78,11 @@ select user, host from mysql.user;
 ```sql
 grant all on sample_rds_proxy.* to lambda@'%' identified by 'lambdapass';
 ```
+
+# RDS Proxyでのアクセス
+1. 踏み台サーバーにアクセス。
+2. RDS Proxy経由でアクセス。
+```
+# rootとlambdaのどちらでもログイン可能
+mysql -h {RDS Proxyのエンドポイント} -P 3306 -u root -p
+```
