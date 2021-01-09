@@ -12,6 +12,7 @@ $ aws ssm get-parameter \
 1. `sam build`を実行。
 2. `sam deploy --guided`を実行し`samconfig.toml`を作成する。
 3. `samconfig.toml`内の設定でパラメータを上書きする。
+※ EC2のキーはあらかじめ作成する。
 
 ```
 上書き必須のパラメータ
@@ -24,3 +25,56 @@ parameter_overrides = [
 ```
 
 4. `sam deploy`でデプロイを実行
+
+# 環境のセットアップ
+### 踏み台サーバーにアクセス
+
+```
+$ ssh -i ".ssh/sample-aws-rds-proxy-ec2-key.pem" {EC2のエンドポイント}
+```
+
+### RDSにアクセス
+
+```
+$ mysql -h {RDSのエンドポイント} -P 3306 -u root -p
+```
+
+### MySQLのセットアップ
+1. ルートユーザーでログインし、データベースとテーブルを作成する。
+```sql
+CREATE DATABASE sample_rds_proxy;
+CREATE TABLE sample_rds_proxy.users (
+    id INT NOT NULL,
+    name VARCHAR(30),
+    PRIMARY KEY (id)
+);
+```
+
+2. 適当なデータを挿入。
+```sql
+USE sample_rds_proxy;
+INSERT INTO users (id, name)
+VALUES
+    (1, 'Hoge User'),
+    (2, 'Fuga User'),
+    (3, 'Piyo User');
+```
+
+3. 現在のユーザーを確認し、lambdaユーザーが存在しないことを確認。
+```sql
+select user, host from mysql.user;
+
++---------------+-----------+
+| user          | host      |
++---------------+-----------+
+| rdsproxyadmin | %         |
+| root          | %         |
+| mysql.sys     | localhost |
+| rdsadmin      | localhost |
++---------------+-----------+
+```
+
+4. lambdaユーザーを登録する。
+```sql
+grant all on sample_rds_proxy.* to lambda@'%' identified by 'lambdapass';
+```
