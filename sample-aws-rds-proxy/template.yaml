@@ -73,7 +73,7 @@ Parameters:
 
 Globals:
   Function:
-    Timeout: 3
+    Timeout: 10
     Handler: app.lambda_handler
     Runtime: python3.8
 
@@ -311,6 +311,37 @@ Resources:
         MaxConnectionsPercent: 90
         MaxIdleConnectionsPercent: 10
 
+  RDSProxyWithIam:
+    Type: AWS::RDS::DBProxy
+    Properties:
+      DBProxyName: sample-rds-proxy-for-mysql-with-iam
+      EngineFamily: MYSQL
+      RequireTLS: True
+      RoleArn: !GetAtt RDSProxyRole.Arn
+      Auth:
+        - AuthScheme: SECRETS
+          SecretArn: !Ref RDSLambdaUserPassword
+          IAMAuth: REQUIRED
+      VpcSecurityGroupIds:
+        - !Ref RDSProxySecurityGroup
+      VpcSubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  RDSProxyWithIamTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    DependsOn:
+      - RDSInstance
+    Properties:
+      DBProxyName: !Ref RDSProxyWithIam
+      DBInstanceIdentifiers:
+        - !Ref RDSInstance
+      TargetGroupName: default
+      ConnectionPoolConfigurationInfo:
+        ConnectionBorrowTimeout: 120
+        MaxConnectionsPercent: 90
+        MaxIdleConnectionsPercent: 10
+
   #
   # EC2（踏み台）
   #
@@ -406,4 +437,29 @@ Resources:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
               Resource: !Ref RDSLambdaUserPassword
+        - AWSLambdaVPCAccessExecutionRole
+
+  GetUserWithIamFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/get_user_with_iam/
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref FunctionSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+      Environment:
+        Variables:
+          RDS_PROXY_ENDPOINT: !GetAtt RDSProxyWithIam.Endpoint
+          RDS_PROXY_PORT: !Ref RDSDBPort
+          RDS_USER: "lambda"
+          DB_NAME: "sample_rds_proxy"
+      Policies:
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action: rds-db:connect
+              Resource: "arn:aws:rds-db:eu-west-1:414867676510:dbuser:prx-07af81c332474cf27/lambda"
+              # https://docs.aws.amazon.com/ja_jp/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.IAMPolicy.html
         - AWSLambdaVPCAccessExecutionRole
