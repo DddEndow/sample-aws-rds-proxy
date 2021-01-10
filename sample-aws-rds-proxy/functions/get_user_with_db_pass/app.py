@@ -38,8 +38,9 @@ def lambda_handler(event, context):
             connect_timeout=5,
             cursorclass=pymysql.cursors.DictCursor
         )
-    except Exception:
+    except Exception as e:
         logger.error("不明なエラーが発生しました。")
+        logger.error(e)
         sys.exit()
 
     with conn.cursor() as cur:
