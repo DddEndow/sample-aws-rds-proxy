@@ -1,4 +1,5 @@
 # sample-aws-rds-proxy
+LambdaからのRDS Proxyの動作確認用リポジトリ
 
 # デプロイ方法
 ### デプロイ先リージョンのEC2のAMIを取得し、Mappingsに追加する。
